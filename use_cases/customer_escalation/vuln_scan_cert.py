@@ -2,6 +2,8 @@ import csv
 import requests
 import json
 import pandas as pd
+import sys
+import os
 
 # Function to get CVE details from Red Hat Security Data API
 def get_cve_details(cve_id):
@@ -45,54 +47,67 @@ def check_affected_status(cve_details, package_name, package_version):
         if state['package_name'] == package_name and (state.get('product_version', '') == package_version or package_version == "")
     ]
 
+def main(input_file_path, output_file_path):
 
-# Path to the input CSV file
-input_file_path = '/workspaces/decoder_utility_scripts/Vuln Scan Cert Test Data 1 - Resubmitted Python.csv'
-output_file_path = '/workspaces/decoder_utility_scripts/output - Sheet1.csv'
 
-# Read input CSV file
-data = pd.read_csv(input_file_path)
+    # Read input CSV file
+    data = pd.read_csv(input_file_path)
 
-# Prepare the output data
-output_data = []
+    # Prepare the output data
+    output_data = []
 
-for index, row in data.iterrows():
-    cve_id = row['CVE']
-    package_name = row['Package']
-    package_version = row['Package Version']
+    for index, row in data.iterrows():
+        cve_id = row['CVE']
+        package_name = row['Package']
+        package_version = row['Package Version']
+        
+        print(f"Processing CVE: {cve_id}, Package: {package_name}, Version: {package_version}")
+        
+        cve_details = get_cve_details(cve_id)
+        
+        if cve_details is None:
+            continue
+
+        severity = get_severity_rating(cve_details)
+        rhsa_list = get_rhsa_list(cve_details)
+        advisories_products = get_advisories_and_products(cve_details)
+        affected_status = check_affected_status(cve_details, package_name, package_version)
+        
+        for advisory_product in advisories_products:
+            if advisory_product['package'] == package_name and (package_version == "" or advisory_product['version'] == package_version):
+                row_data = {
+                    'CVE': cve_id,
+                    'Package': package_name,
+                    'Package Version': package_version,
+                    'Severity': severity,
+                    'RHSA': advisory_product['advisory'],
+                    'Advisory URL': get_advisory_url(advisory_product['advisory']),
+                    'Product Name': advisory_product['product_name'],
+                    'Fixed Status': affected_status[0] if affected_status else 'N/A'
+                }
+                output_data.append(row_data)
+                print(output_data)  # Print each row of data to the terminal
+
+    # Write output data to CSV
+    output_df = pd.DataFrame(output_data)
+    output_df.to_csv(output_file_path, index=False)
+
+    print(f"Enriched data has been written to {output_file_path}")
+
+if __name__ == "__main__":
+    if len(sys.argv) != 3:
+        print("Usage: python vuln_scan_cert.py <input_file_path> <output_file_path>")
+        sys.exit(1)
     
-    print(f"Processing CVE: {cve_id}, Package: {package_name}, Version: {package_version}")
+    input_file_path = sys.argv[1]
+    output_file_path = sys.argv[2]
+
+    # Check if the input file exists
+    if not os.path.isfile(input_file_path):
+        print(f"Error: The file '{input_file_path}' does not exist.")
+        sys.exit(1)
     
-    cve_details = get_cve_details(cve_id)
-    
-    if cve_details is None:
-        continue
-
-    severity = get_severity_rating(cve_details)
-    rhsa_list = get_rhsa_list(cve_details)
-    advisories_products = get_advisories_and_products(cve_details)
-    affected_status = check_affected_status(cve_details, package_name, package_version)
-    
-    for advisory_product in advisories_products:
-        if advisory_product['package'] == package_name and (package_version == "" or advisory_product['version'] == package_version):
-            row_data = {
-                'CVE': cve_id,
-                'Package': package_name,
-                'Package Version': package_version,
-                'Severity': severity,
-                'RHSA': advisory_product['advisory'],
-                'Advisory URL': get_advisory_url(advisory_product['advisory']),
-                'Product Name': advisory_product['product_name'],
-                'Fixed Status': affected_status[0] if affected_status else 'N/A'
-            }
-            output_data.append(row_data)
-            print(output_data)  # Print each row of data to the terminal
-
-# Write output data to CSV
-output_df = pd.DataFrame(output_data)
-output_df.to_csv(output_file_path, index=False)
-
-print(f"Enriched data has been written to {output_file_path}")
+    main(input_file_path, output_file_path)
 
 
-
+#python vuln_scan_cert.py "Vuln Scan Cert Test Data 1 - Resubmitted Python.csv" "output - Sheet1.csv"
